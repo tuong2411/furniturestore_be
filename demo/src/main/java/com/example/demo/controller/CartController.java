@@ -1,4 +1,7 @@
 package com.example.demo.controller;
+import org.springframework.http.HttpStatus;
+
+import java.util.Map;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -6,10 +9,12 @@ import org.springframework.web.bind.annotation.*;
 import com.example.demo.dto.AddToCartRequest;
 import com.example.demo.dto.CartDto;
 import com.example.demo.dto.UpdateCartItemQtyRequest;
+import com.example.demo.security.CustomUserDetails;
 import com.example.demo.service.CartService;
 
 @RestController
 @RequestMapping("/api/cart")
+
 public class CartController {
     private final CartService service;
 
@@ -17,13 +22,15 @@ public class CartController {
         this.service = service;
     }
 
-    // Bạn cần hàm lấy userId từ Authentication (tùy hệ login của bạn)
-    private long currentUserId(Authentication auth) {
-        // CÁCH 1 (nếu principal lưu userId dạng số):
-        // return ((MyUserPrincipal) auth.getPrincipal()).getUserId();
+    @ExceptionHandler(SecurityException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Map<String, String> forbidden(SecurityException ex) {
+        return Map.of("message", ex.getMessage());
+    }
 
-        // CÁCH 2 (demo tạm): nếu auth.getName() là user_id
-        return Long.parseLong(auth.getName());
+    private long currentUserId(Authentication auth) {
+        CustomUserDetails principal = (CustomUserDetails) auth.getPrincipal();
+        return principal.getUser().getUserId();
     }
 
     @GetMapping

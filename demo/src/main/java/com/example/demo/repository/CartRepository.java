@@ -110,4 +110,16 @@ public class CartRepository {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, variantId, productId);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
+    
+    public boolean cartItemBelongsToUser(long cartItemId, long userId) {
+        String sql = """
+            SELECT COUNT(*)
+            FROM cart_items ci
+            JOIN carts c ON c.cart_id = ci.cart_id
+            WHERE ci.cart_item_id = ? AND c.user_id = ?
+        """;
+        Integer cnt = jdbc.queryForObject(sql, Integer.class, cartItemId, userId);
+        return cnt != null && cnt > 0;
+    }
+
 }

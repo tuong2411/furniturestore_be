@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -24,6 +25,7 @@ public class CartService {
 
         CartDto dto = new CartDto();
         dto.cartId = cartId;
+        dto.items = new ArrayList<>();
 
         List<Map<String, Object>> rows = repo.findCartItems(cartId);
 
@@ -95,14 +97,25 @@ public class CartService {
     }
 
     public CartDto updateQty(long userId, long cartItemId, int qty) {
+        if (!repo.cartItemBelongsToUser(cartItemId, userId)) {
+            throw new SecurityException("FORBIDDEN");
+        }
+
         if (qty < 1) qty = 1;
+
         repo.updateQuantity(cartItemId, qty);
         return getMyCart(userId);
     }
 
     public CartDto removeItem(long userId, long cartItemId) {
+        if (!repo.cartItemBelongsToUser(cartItemId, userId)) {
+            throw new SecurityException("FORBIDDEN");
+        }
+
         repo.deleteItem(cartItemId);
         return getMyCart(userId);
     }
+
+    
 
 }

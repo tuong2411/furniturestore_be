@@ -2,55 +2,82 @@ package com.example.demo.controller;
 
 import java.util.Map;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.*;
 
 import com.example.demo.dto.LoginRequest;
 import com.example.demo.dto.LoginResponse;
 import com.example.demo.dto.RegisterRequest;
+import com.example.demo.security.CustomUserDetails;
 import com.example.demo.service.AuthService;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
 public class AuthController {
-	
-	private final AuthService authService;
 
-    public AuthController(AuthService authService) {
-        this.authService = authService;
+  private final AuthService authService;
+
+  public AuthController(AuthService authService) {
+    this.authService = authService;
+  }
+
+  @PostMapping("/login")
+  public ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletRequest httpReq) {
+    try {
+    	LoginResponse resp = authService.login(request, httpReq);
+      return ResponseEntity.ok(resp);
+    } catch (BadCredentialsException ex) {
+      return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+          .body(Map.of("message", "Email hoặc mật khẩu không đúng"));
+    }
+  }
+
+  @PostMapping("/register")
+  public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
+    try {
+      authService.register(request);
+      return ResponseEntity.ok(Map.of("message", "Đăng ký thành công"));
+    } catch (IllegalStateException ex) {
+      return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+          .body(Map.of("message", ex.getMessage()));
+    }
+  }
+
+  // ✅ FE gọi để biết đang login chưa
+  @GetMapping("/me")
+  public ResponseEntity<?> me(Authentication auth) {
+    if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(String.valueOf(auth.getPrincipal()))) {
+      return ResponseEntity.ok(Map.of("authenticated", false));
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody LoginRequest request) {
-        LoginResponse resp = authService.login(request);
-        if (resp == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(new ErrorMessage("Email hoặc mật khẩu không đúng"));
-        }
-        return ResponseEntity.ok(resp);
-    }
+    CustomUserDetails principal = (CustomUserDetails) auth.getPrincipal();
+    var user = principal.getUser();
 
-    static class ErrorMessage {
-        private String message;
-        public ErrorMessage(String message) { this.message = message; }
-        public String getMessage() { return message; }
-    }
-    
-    @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
-        try {
-            authService.register(request);
-            return ResponseEntity.ok(Map.of("message", "Đăng ký thành công"));
-        } catch (IllegalStateException ex) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("message", ex.getMessage()));
-        }
-    }
+    return ResponseEntity.ok(Map.of(
+        "authenticated", true,
+        "user", Map.of(
+            "id", user.getUserId(),
+            "fullName", user.getFullName(),
+            "email", user.getEmail(),
+            "roleName", user.getRoleName()
+        )
+    ));
+  }
 
+  // ✅ logout session
+  @PostMapping("/logout")
+  public ResponseEntity<?> logout(HttpServletRequest request) {
+    SecurityContextHolder.clearContext();
+    HttpSession session = request.getSession(false);
+    if (session != null) session.invalidate();
+    return ResponseEntity.ok(Map.of("message", "LOGOUT_OK"));
+  }
 }
