@@ -1,0 +1,74 @@
+package com.example.demo.repository;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public class ProductRepository {
+
+	private final JdbcTemplate jdbcTemplate;
+
+    public ProductRepository(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public long countProducts(String q, String categorySlug, List<String> materials, BigDecimal minPrice, BigDecimal maxPrice) {
+        StringBuilder sql = new StringBuilder();
+        List<Object> args = new ArrayList<>();
+
+        sql.append("""
+            SELECT COUNT(DISTINCT p.product_id)
+            FROM products p
+            JOIN categories c ON c.category_id = p.category_id
+        """);
+
+        // Filter material qua variants
+        if (materials != null && !materials.isEmpty()) {
+            sql.append("""
+                JOIN product_variants pv ON pv.product_id = p.product_id AND pv.is_active = 1
+            """);
+        }
+
+        sql.append(" WHERE p.is_active = 1 ");
+
+        if (q != null && !q.trim().isEmpty()) {
+            sql.append(" AND (p.name LIKE ? OR p.short_desc LIKE ? OR p.description LIKE ?) ");
+            String kw = "%" + q.trim() + "%";
+            args.add(kw); args.add(kw); args.add(kw);
+        }
+
+        if (categorySlug != null && !categorySlug.trim().isEmpty()) {
+            sql.append("""
+                AND (
+                    c.slug = ?
+                    OR c.parent_id = (SELECT category_id FROM categories WHERE slug = ? LIMIT 1)
+                )
+            """);
+            args.add(categorySlug.trim());
+            args.add(categorySlug.trim());
+        }
+
+        if (minPrice != null) {
+            sql.append(" AND p.base_price >= ? ");
+            args.add(minPrice);
+        }
+        if (maxPrice != null) {
+            sql.append(" AND p.base_price <= ? ");
+            args.add(maxPrice);
+        }
+
+        if (materials != null && !materials.isEmpty()) {
+            sql.append(" AND pv.material IN (");
+            sql.append("?, ".repeat(materials.size()));
+            sql.setLength(sql.length() - 2);
+            sql.append(") ");
+            args.addAll(materials);
+        }
+
+        return jdbcTemplate.queryForObject(sql.toString(), args.toArray(), Long.class);
+    }
+}

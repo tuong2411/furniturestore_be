@@ -1,0 +1,5 @@
+package com.example.demo.repository.rowmapper;
+
+public class UserRowMapper {
+
+}
