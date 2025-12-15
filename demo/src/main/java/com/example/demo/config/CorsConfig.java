@@ -15,7 +15,7 @@ public class CorsConfig {
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowCredentials(true); // ✅ để gửi cookie (JSESSIONID)
+        config.setAllowCredentials(true); 
         config.setAllowedOrigins(List.of("http://localhost:5173")); // ✅ FE origin
         config.setAllowedHeaders(List.of("*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));

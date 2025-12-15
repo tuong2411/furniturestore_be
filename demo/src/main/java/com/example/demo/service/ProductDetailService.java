@@ -32,70 +32,69 @@ public class ProductDetailService {
         dto.sku = (String) p.get("sku");
 
         dto.price = (BigDecimal) p.get("base_price");
-        dto.originalPrice = null; // ✅ DB chưa có cột này (fen có thể thêm sau)
+        dto.originalPrice = null; 
         dto.mainImage = (String) p.get("main_image");
         dto.description = (String) p.get("description");
 
-        dto.rating = 4.8;      // tạm
-        dto.reviewCount = 125; // tạm
+        dto.rating = 4.8;      
+        dto.reviewCount = 125; 
 
         dto.gallery = repo.findGallery(productId);
 
         // ===== Variants =====
         List<Map<String, Object>> vars = repo.findVariants(productId);
 
-        ProductDetailDto.VariantDto vdto = new ProductDetailDto.VariantDto();
-
-        // Colors: lấy unique từ DB
-        List<ProductDetailDto.ColorDto> colors = vars.stream()
-            .map(r -> (String) r.get("color"))
-            .filter(Objects::nonNull)
-            .distinct()
-            .map(name -> {
-                ProductDetailDto.ColorDto c = new ProductDetailDto.ColorDto();
-                c.name = name;
-                c.hex = "#F5F5DC"; // chưa có hex trong DB -> tạm 1 màu
-                return c;
-            })
-            .toList();
-
-        // Nếu DB không có color, fallback
-        if (colors.isEmpty()) {
-            ProductDetailDto.ColorDto c = new ProductDetailDto.ColorDto();
-            c.name = "Mặc định";
-            c.hex = "#F5F5DC";
-            colors = List.of(c);
-        }
-        vdto.colors = colors;
-
-        // Sizes: group theo size_label, lấy giá nhỏ nhất cho mỗi size
-        Map<String, BigDecimal> minPriceBySize = new LinkedHashMap<>();
-        for (Map<String, Object> r : vars) {
-            String label = (String) r.get("size_label"); // alias từ SQL (size AS size_label)
-            BigDecimal price = (BigDecimal) r.get("price");
-            if (label == null) label = "Tiêu chuẩn";
-            minPriceBySize.merge(label, price, (a, b) -> a.min(b));
-        }
-
-        List<ProductDetailDto.SizeDto> sizes = minPriceBySize.entrySet().stream()
-            .map(e -> {
-                ProductDetailDto.SizeDto s = new ProductDetailDto.SizeDto();
-                s.label = e.getKey();
-                s.price = e.getValue() != null ? e.getValue() : dto.price;
-                return s;
-            })
-            .collect(Collectors.toList());
-
-        // nếu không có variant -> fallback 1 size
-        if (sizes.isEmpty()) {
-            ProductDetailDto.SizeDto s = new ProductDetailDto.SizeDto();
-            s.label = "Tiêu chuẩn";
-            s.price = dto.price;
-            sizes = List.of(s);
-        }
-        vdto.sizes = sizes;
-
-        dto.variants = vdto;
+     // 1. variantList (để FE tìm variantId)
+	     dto.variantList = vars.stream().map(r -> {
+	         ProductDetailDto.VariantItemDto v = new ProductDetailDto.VariantItemDto();
+	         Object vid = r.get("variant_id");
+	         v.variantId = (vid == null) ? null : ((Number) vid).longValue();
+	         v.material = (String) r.get("material");
+	         v.color = (String) r.get("color");
+	         v.size = (String) r.get("size");
+	         v.price = (BigDecimal) r.get("price");
+	         return v;
+	     }).toList();
+	
+	     // 2. UI options (colors + sizes)
+	     ProductDetailDto.VariantUiDto vdto = new ProductDetailDto.VariantUiDto();
+	
+	     // map màu → hex
+	     Map<String, String> colorHexMap = Map.of(
+	         "Trắng Kem", "#F5F5DC",
+	         "Kem", "#F5F5DC",
+	         "Nâu", "#D2B48C",
+	         "Xám", "#808080",
+	         "Đen", "#111827",
+	         "Trắng", "#F9FAFB"
+	     );
+	
+	     // colors unique
+	     vdto.colors = dto.variantList.stream()
+	         .map(it -> it.color)
+	         .filter(c -> c != null && !c.isBlank())
+	         .distinct()
+	         .map(c -> {
+	             ProductDetailDto.ColorDto cd = new ProductDetailDto.ColorDto();
+	             cd.name = c;
+	             cd.hex = colorHexMap.getOrDefault(c, "#CBD5E1");
+	             return cd;
+	         })
+	         .toList();
+	
+	     // sizes unique
+	     vdto.sizes = dto.variantList.stream()
+	         .map(it -> it.size)
+	         .filter(s -> s != null && !s.isBlank())
+	         .distinct()
+	         .map(s -> {
+	             ProductDetailDto.SizeDto sd = new ProductDetailDto.SizeDto();
+	             sd.label = s;
+	             return sd;
+	         })
+	         .toList();
+	
+	     dto.variants = vdto;
 
         dto.specs = Map.of(
             "Chất liệu bọc", "Vải Bouclé",

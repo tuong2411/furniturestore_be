@@ -1,0 +1,125 @@
+package com.example.demo.repository;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public class CartRepository {
+    private final JdbcTemplate jdbc;
+
+    public CartRepository(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    public Optional<Long> findActiveCartId(long userId) {
+        String sql = """
+            SELECT cart_id
+            FROM carts
+            WHERE user_id = ? AND status = 'ACTIVE'
+            ORDER BY cart_id DESC
+            LIMIT 1
+        """;
+        List<Long> ids = jdbc.queryForList(sql, Long.class, userId);
+        return ids.isEmpty() ? Optional.empty() : Optional.of(ids.get(0));
+    }
+
+    public long createCart(long userId) {
+        jdbc.update("INSERT INTO carts(user_id, status) VALUES(?, 'ACTIVE')", userId);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    public List<Map<String, Object>> findCartItems(long cartId) {
+        String sql = """
+            SELECT
+              ci.cart_item_id,
+              ci.product_id,
+              p.name,
+              p.slug,
+              p.main_image,
+              ci.variant_id,
+              pv.material,
+              pv.color,
+              pv.size,
+              ci.unit_price,
+              ci.quantity
+            FROM cart_items ci
+            JOIN products p ON p.product_id = ci.product_id
+            LEFT JOIN product_variants pv ON pv.variant_id = ci.variant_id
+            WHERE ci.cart_id = ?
+            ORDER BY ci.cart_item_id DESC
+        """;
+        return jdbc.queryForList(sql, cartId);
+    }
+
+    public Optional<Long> findExistingCartItemId(long cartId, long productId, Long variantId) {
+        String sql = """
+            SELECT cart_item_id
+            FROM cart_items
+            WHERE cart_id = ?
+              AND product_id = ?
+              AND (
+                    (variant_id = ?)
+                    OR (variant_id IS NULL AND ? IS NULL)
+                  )
+            LIMIT 1
+        """;
+        List<Long> rows = jdbc.queryForList(sql, Long.class, cartId, productId, variantId, variantId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public void increaseQuantity(long cartItemId, int addQty) {
+        jdbc.update("UPDATE cart_items SET quantity = quantity + ? WHERE cart_item_id = ?", addQty, cartItemId);
+    }
+
+    public void insertCartItem(long cartId, long productId, Long variantId, int qty, BigDecimal unitPrice) {
+        jdbc.update("""
+            INSERT INTO cart_items(cart_id, product_id, variant_id, quantity, unit_price)
+            VALUES(?, ?, ?, ?, ?)
+        """, cartId, productId, variantId, qty, unitPrice);
+    }
+
+    public void updateQuantity(long cartItemId, int qty) {
+        jdbc.update("UPDATE cart_items SET quantity = ? WHERE cart_item_id = ?", qty, cartItemId);
+    }
+
+    public void deleteItem(long cartItemId) {
+        jdbc.update("DELETE FROM cart_items WHERE cart_item_id = ?", cartItemId);
+    }
+
+    public Optional<Map<String, Object>> getProductPrice(long productId, Long variantId) {
+        String sql = """
+            SELECT
+              p.product_id,
+              p.is_active,
+              p.base_price,
+              pv.variant_id,
+              pv.is_active AS variant_active,
+              pv.price_override
+            FROM products p
+            LEFT JOIN product_variants pv
+              ON pv.variant_id = ?
+             AND pv.product_id = p.product_id
+            WHERE p.product_id = ?
+            LIMIT 1
+        """;
+        List<Map<String, Object>> rows = jdbc.queryForList(sql, variantId, productId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+    
+    public boolean cartItemBelongsToUser(long cartItemId, long userId) {
+        String sql = """
+            SELECT COUNT(*)
+            FROM cart_items ci
+            JOIN carts c ON c.cart_id = ci.cart_id
+            WHERE ci.cart_item_id = ? AND c.user_id = ?
+        """;
+        Integer cnt = jdbc.queryForObject(sql, Integer.class, cartItemId, userId);
+        return cnt != null && cnt > 0;
+    }
+
+}

@@ -38,15 +38,14 @@ public class ProductDetailRepository {
         );
     }
 
-    // ✅ FIX: DB là `size`, không phải `size_label`
     public List<Map<String, Object>> findVariants(long productId) {
-        return jdbc.queryForList("""
-            SELECT color, size AS size_label, material, price
-            FROM product_variants
-            WHERE product_id = ? AND is_active = 1
-            ORDER BY price ASC
-        """, productId);
-    }
+    	  return jdbc.queryForList("""
+    	      SELECT variant_id, material, color, size, price
+    	      FROM product_variants
+    	      WHERE product_id = ? AND is_active = 1
+    	      ORDER BY variant_id ASC
+    	  """, productId);
+    	}
 
     public List<Map<String, Object>> findRelated(long categoryId, long productId) {
         return jdbc.queryForList("""

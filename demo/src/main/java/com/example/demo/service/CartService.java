@@ -73,7 +73,7 @@ public class CartService {
         int isActive = (isActiveObj instanceof Boolean b) ? (b ? 1 : 0) : ((Number) isActiveObj).intValue();
         if (isActive != 1) throw new NoSuchElementException("PRODUCT_INACTIVE");
 
-        // nếu có variantId thì variant phải tồn tại đúng product + active
+
         if (req.variantId != null) {
             if (priceRow.get("variant_id") == null) throw new NoSuchElementException("VARIANT_NOT_FOUND");
 
@@ -83,8 +83,9 @@ public class CartService {
         }
 
         BigDecimal basePrice = (BigDecimal) priceRow.get("base_price");
-        BigDecimal overridePrice = (BigDecimal) priceRow.get("price_override");
-        BigDecimal unitPrice = (overridePrice != null) ? overridePrice : basePrice;
+        BigDecimal variantPrice = (BigDecimal) priceRow.get("variant_price");
+
+        BigDecimal unitPrice = (req.variantId != null && variantPrice != null) ? variantPrice : basePrice;
 
         // upsert
         repo.findExistingCartItemId(cartId, req.productId, req.variantId)

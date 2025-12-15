@@ -51,6 +51,7 @@ public class SecurityConfig {
                 "/api/products/**"
             ).permitAll()
             .requestMatchers("/api/cart/**").authenticated()
+            .requestMatchers("/api/checkout/**").authenticated()
             .anyRequest().authenticated()
         )
         .exceptionHandling(ex -> ex.authenticationEntryPoint((req, res, e) -> {

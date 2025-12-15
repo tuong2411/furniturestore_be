@@ -99,7 +99,7 @@ public class CartRepository {
               p.base_price,
               pv.variant_id,
               pv.is_active AS variant_active,
-              pv.price_override
+              pv.price AS variant_price
             FROM products p
             LEFT JOIN product_variants pv
               ON pv.variant_id = ?
