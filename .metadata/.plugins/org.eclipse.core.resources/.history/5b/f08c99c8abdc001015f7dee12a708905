@@ -1,0 +1,37 @@
+package com.example.demo.controller;
+
+import com.example.demo.dto.ChatbotDtos.AskReq;
+import com.example.demo.dto.ChatbotDtos.AskRes;
+import com.example.demo.service.ChatbotService;
+
+import java.util.Map;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/chatbot")
+public class ChatbotController {
+  private final ChatbotService chatbot;
+
+  public ChatbotController(ChatbotService chatbot) {
+    this.chatbot = chatbot;
+  }
+
+  @PostMapping("/ask")
+  public ResponseEntity<?> ask(@RequestBody AskReq req) {
+    try {
+      if (req == null || req.message == null || req.message.trim().isEmpty()) {
+        return ResponseEntity.badRequest().body(Map.of("message", "EMPTY_MESSAGE"));
+      }
+      String reply = chatbot.askPublic(req.message);
+      return ResponseEntity.ok(Map.of("reply", reply));
+    } catch (Exception e) {
+      return ResponseEntity.status(503).body(Map.of(
+        "message", "AI_OVERLOADED",
+        "detail", "Gemini đang quá tải, thử lại sau"
+      ));
+    }
+  }
+
+}

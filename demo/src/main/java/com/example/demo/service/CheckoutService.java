@@ -47,17 +47,15 @@ public class CheckoutService {
         String street   = must(s.address, "address");
         String province = must(s.city, "city");
 
-        // DB user_addresses district/ward NOT NULL :contentReference[oaicite:7]{index=7}
         String district = nonEmptyOr(s.district, "N/A");
         String ward     = nonEmptyOr(s.ward, "N/A");
 
         long cartId = repo.findActiveCartId(userId)
                 .orElseThrow(() -> new NoSuchElementException("CART_NOT_FOUND"));
 
-        // 1) Load selected items (must belong to this cart)
         List<CheckoutItemRow> items = repo.findSelectedItems(cartId, req.cartItemIds);
         if (items.size() != req.cartItemIds.size()) {
-            throw new SecurityException("FORBIDDEN"); // cố tình chọn item của người khác
+            throw new SecurityException("FORBIDDEN"); 
         }
 
         // 2) Stock check + subtotal
@@ -173,40 +171,44 @@ public class CheckoutService {
         res.status = "PENDING";
         res.paymentStatus = "UNPAID";
         res.paymentMethod = paymentMethodEnum;
-        
-        
-        String emailTo = s.email; // lấy từ request shippingInfo.email
-        String addressText = province + ", " + district + ", " + ward + " - " + street;
 
-        // build items for email (nhẹ thôi)
-        List<Map<String, Object>> emailItems = new ArrayList<>();
-        for (CheckoutItemRow it : items) {
-            Map<String, Object> m = new HashMap<>();
-            m.put("name", it.productName);
-            m.put("variantInfo", it.variantInfo);
-            m.put("qty", it.quantity);
-            m.put("priceFormatted", formatVnd(it.unitPrice));
-            m.put("lineTotalFormatted", formatVnd(it.unitPrice.multiply(BigDecimal.valueOf(it.quantity))));
-            emailItems.add(m);
-        }
+        // ===== CHỈ GỬI MAIL NGAY NẾU COD =====
+        if ("COD".equalsIgnoreCase(paymentMethodEnum)) {
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                emailService.sendOrderSuccessEmail(
-                    emailTo,
-                    orderId,
-                    fullName,
-                    phone,
-                    addressText,
-                    paymentMethodEnum,
-                    req.note,
-                    formatVnd(total),
-                    emailItems
-                );
+        	String emailTo = repo.findUserEmail(userId)
+        		    .orElseThrow(() -> new IllegalStateException("USER_EMAIL_NOT_FOUND"));
+            String addressText = province + ", " + district + ", " + ward + " - " + street;
+
+            // build items cho mail (giữ nguyên code của fen)
+            List<Map<String, Object>> emailItems = new ArrayList<>();
+            for (CheckoutItemRow it : items) {
+                Map<String, Object> m = new HashMap<>();
+                m.put("name", it.productName);
+                m.put("variantInfo", it.variantInfo);
+                m.put("qty", it.quantity);
+                m.put("priceFormatted", formatVnd(it.unitPrice));
+                m.put("lineTotalFormatted",
+                    formatVnd(it.unitPrice.multiply(BigDecimal.valueOf(it.quantity))));
+                emailItems.add(m);
             }
-        });
-        
+
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    emailService.sendOrderSuccessEmail(
+                        emailTo,
+                        orderId,
+                        fullName,
+                        phone,
+                        addressText,
+                        paymentMethodEnum,
+                        req.note,          // orders.note
+                        formatVnd(total),
+                        emailItems
+                    );
+                }
+            });
+        }
         return res;
     }
     

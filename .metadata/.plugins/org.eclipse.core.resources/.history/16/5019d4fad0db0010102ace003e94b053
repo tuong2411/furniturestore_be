@@ -1,0 +1,134 @@
+package com.example.demo.repository;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import com.example.demo.dto.AddressDto;
+import com.example.demo.dto.MyProfileResponse;
+
+public class ProfileRepository {
+	private final JdbcTemplate jdbc;
+
+    public ProfileRepository(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    public Optional<MyProfileResponse> findMyProfile(long userId) {
+        String sql = """
+            SELECT
+              u.user_id,
+              u.full_name,
+              u.email,
+              u.phone,
+              u.avatar_url,
+              u.status,
+              r.role_name,
+              u.created_at,
+              u.updated_at
+            FROM users u
+            JOIN roles r ON r.role_id = u.role_id
+            WHERE u.user_id = ?
+            LIMIT 1
+        """;
+
+        List<MyProfileResponse> rows = jdbc.query(sql, (rs, i) -> mapProfile(rs), userId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public void updateMyProfile(long userId, String fullName, String phone, String avatarUrl) throws DuplicateKeyException {
+        String sql = """
+            UPDATE users
+            SET full_name = ?, phone = ?, avatar_url = ?
+            WHERE user_id = ?
+        """;
+        jdbc.update(sql, fullName, phone, avatarUrl, userId);
+    }
+
+    public List<AddressDto> listMyAddresses(long userId) {
+        String sql = """
+            SELECT
+              address_id, full_name, phone, province, district, ward, street,
+              is_default, created_at
+            FROM user_addresses
+            WHERE user_id = ?
+            ORDER BY is_default DESC, address_id DESC
+        """;
+        return jdbc.query(sql, (rs, i) -> mapAddress(rs), userId);
+    }
+
+    public Optional<AddressDto> findMyAddressById(long userId, long addressId) {
+        String sql = """
+            SELECT
+              address_id, full_name, phone, province, district, ward, street,
+              is_default, created_at
+            FROM user_addresses
+            WHERE user_id = ? AND address_id = ?
+            LIMIT 1
+        """;
+        List<AddressDto> rows = jdbc.query(sql, (rs, i) -> mapAddress(rs), userId, addressId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public long insertAddress(long userId, AddressDto a) {
+        jdbc.update("""
+            INSERT INTO user_addresses(user_id, full_name, phone, province, district, ward, street, is_default)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, userId, a.fullName, a.phone, a.province, a.district, a.ward, a.street, a.isDefault ? 1 : 0);
+
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    public int updateAddress(long userId, long addressId, AddressDto a) {
+        return jdbc.update("""
+            UPDATE user_addresses
+            SET full_name = ?, phone = ?, province = ?, district = ?, ward = ?, street = ?, is_default = ?
+            WHERE user_id = ? AND address_id = ?
+        """, a.fullName, a.phone, a.province, a.district, a.ward, a.street, a.isDefault ? 1 : 0, userId, addressId);
+    }
+
+    public int deleteAddress(long userId, long addressId) {
+        return jdbc.update("""
+            DELETE FROM user_addresses
+            WHERE user_id = ? AND address_id = ?
+        """, userId, addressId);
+    }
+
+    public void clearDefaultAddress(long userId) {
+        jdbc.update("UPDATE user_addresses SET is_default = 0 WHERE user_id = ?", userId);
+    }
+
+    private MyProfileResponse mapProfile(ResultSet rs) throws SQLException {
+        MyProfileResponse p = new MyProfileResponse();
+        p.userId = rs.getLong("user_id");
+        p.fullName = rs.getString("full_name");
+        p.email = rs.getString("email");
+        p.phone = rs.getString("phone");
+        p.avatarUrl = rs.getString("avatar_url");
+        p.status = rs.getString("status");
+        p.role = rs.getString("role_name");
+        p.createdAt = rs.getTimestamp("created_at").toLocalDateTime();
+        p.updatedAt = rs.getTimestamp("updated_at").toLocalDateTime();
+        return p;
+    }
+
+    private AddressDto mapAddress(ResultSet rs) throws SQLException {
+        AddressDto a = new AddressDto();
+        a.addressId = rs.getLong("address_id");
+        a.fullName = rs.getString("full_name");
+        a.phone = rs.getString("phone");
+        a.province = rs.getString("province");
+        a.district = rs.getString("district");
+        a.ward = rs.getString("ward");
+        a.street = rs.getString("street");
+        Object d = rs.getObject("is_default");
+        a.isDefault = (d instanceof Boolean b) ? b : ((Number) d).intValue() == 1;
+        a.createdAt = rs.getTimestamp("created_at").toLocalDateTime();
+        return a;
+    }
+
+}

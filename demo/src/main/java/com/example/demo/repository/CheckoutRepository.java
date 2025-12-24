@@ -17,6 +17,17 @@ public class CheckoutRepository {
     public CheckoutRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
+    
+    public Optional<String> findUserEmail(long userId) {
+        String sql = """
+            SELECT email
+            FROM users
+            WHERE user_id = ?
+            LIMIT 1
+        """;
+        List<String> rows = jdbc.queryForList(sql, String.class, userId);
+        return rows.isEmpty() ? Optional.empty() : Optional.ofNullable(rows.get(0));
+    }
 
     public Optional<Long> findActiveCartId(long userId) {
         String sql = """

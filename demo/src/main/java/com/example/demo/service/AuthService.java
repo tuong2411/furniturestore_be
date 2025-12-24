@@ -43,10 +43,9 @@ public class AuthService {
 	        )
 	    );
 
-	    // ✅ SET authentication vào SecurityContext
 	    SecurityContextHolder.getContext().setAuthentication(authentication);
 
-	    // ✅ TẠO SESSION + LƯU SECURITY CONTEXT
+
 	    HttpSession session = httpRequest.getSession(true);
 	    session.setAttribute(
 	        HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,

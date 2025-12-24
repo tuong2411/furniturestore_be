@@ -1,0 +1,11 @@
+package com.example.demo.dto;
+
+public class ChatbotDtos {
+	public static class AskReq {
+	    public String message;
+	  }
+	  public static class AskRes {
+	    public String reply;
+	    public AskRes(String reply){ this.reply = reply; }
+	  }
+}

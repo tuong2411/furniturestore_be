@@ -1,0 +1,27 @@
+spring.application.name=demo
+server.port=8686
+
+spring.datasource.url=jdbc:mysql://localhost:3306/modern_furniture_shop
+spring.datasource.username=root
+spring.datasource.password=123456
+
+
+spring.mail.host=smtp.gmail.com
+spring.mail.port=587
+spring.mail.username=lamngocnhaky8@gmail.com
+spring.mail.password=yhfy cvsa liig adkp
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true
+
+spring.mail.default-encoding=UTF-8
+
+
+# VNPAY CONFIG
+vnpay.tmnCode=XRX30P3Z
+vnpay.hashSecret=GVWZCZPMO7OQIYWQDSVWF4LRONFPJZLS
+vnpay.payUrl=https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+vnpay.returnUrl=https://c80f50707ac7.ngrok-free.app/api/vnpay/return
+
+app.feBase=http://localhost:5173
+gemini.api.key=${GEMINI_API_KEY}
+gemini.model=gemini-2.5-flash

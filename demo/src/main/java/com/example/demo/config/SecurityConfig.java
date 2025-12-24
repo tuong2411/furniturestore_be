@@ -35,31 +35,49 @@ public class SecurityConfig {
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http
-        .csrf(csrf -> csrf.disable()) 
-        .cors(cors -> {})
-
-        .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
-        .authorizeHttpRequests(auth -> auth
-            .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-            .requestMatchers(
-                "/api/auth/login",
-                "/api/auth/register",
-                "/api/auth/me",
-                "/api/auth/logout",
-                "/api/home",
-                "/api/categories/**",
-                "/api/products/**"
-            ).permitAll()
-            .requestMatchers("/api/cart/**").authenticated()
-            .requestMatchers("/api/checkout/**").authenticated()
-            .anyRequest().authenticated()
-        )
-        .exceptionHandling(ex -> ex.authenticationEntryPoint((req, res, e) -> {
-          res.setStatus(401);
-          res.setContentType("application/json; charset=UTF-8");
-          res.getWriter().write("{\"message\":\"UNAUTHORIZED\"}");
-        }));
+      .csrf(csrf -> csrf.disable())
+      .cors(cors -> {})
+      .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+      .authorizeHttpRequests(auth -> auth
+          .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+          .requestMatchers(
+              "/api/auth/login",
+              "/api/auth/register",
+              "/api/auth/forgot-password",
+              "/api/auth/reset-password",
+              "/api/home",
+              "/api/categories/**",
+              "/api/products/**",
+              "/api/consulting-requests",
+              "/api/vnpay/return",
+              "/api/vnpay/ipn",
+              "/api/mock-vnpay/**",
+              "/api/mock-payment/**",
+              "/api/chatbot/**"
+          ).permitAll()
+          .requestMatchers("/api/auth/logout").authenticated()
+          .requestMatchers("/api/me/**", "/api/cart/**", "/api/checkout/**", "/api/orders/**").authenticated()
+          .requestMatchers("/api/admin/**").hasRole("ADMIN")
+          .anyRequest().authenticated()
+      )
+      .logout(logout -> logout
+          .logoutUrl("/api/auth/logout")
+          .invalidateHttpSession(true)
+          .clearAuthentication(true)
+          .deleteCookies("JSESSIONID")
+          .logoutSuccessHandler((req, res, auth) -> {
+            res.setStatus(200);
+            res.setContentType("application/json; charset=UTF-8");
+            res.getWriter().write("{\"message\":\"LOGGED_OUT\"}");
+          })
+      )
+      .exceptionHandling(ex -> ex.authenticationEntryPoint((req, res, e) -> {
+        res.setStatus(401);
+        res.setContentType("application/json; charset=UTF-8");
+        res.getWriter().write("{\"message\":\"UNAUTHORIZED\"}");
+      }));
 
     return http.build();
   }
+
 }

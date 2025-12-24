@@ -1,0 +1,312 @@
+package com.example.demo.repository;
+
+import java.math.BigDecimal;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public class AdminProductRepository {
+	private final JdbcTemplate jdbc;
+
+	  public AdminProductRepository(JdbcTemplate jdbc) {
+	    this.jdbc = jdbc;
+	  }
+
+	  // ======== Products list/paging ========
+
+	  public long countProducts(String keyword, Long categoryId, Boolean active) {
+	    String sql = """
+	      SELECT COUNT(*)
+	      FROM products p
+	      WHERE (? IS NULL OR ? = '' OR p.name LIKE CONCAT('%%', ?, '%%') OR p.sku LIKE CONCAT('%%', ?, '%%'))
+	        AND (? IS NULL OR p.category_id = ?)
+	        AND (? IS NULL OR p.is_active = ?)
+	    """;
+	    Long v = jdbc.queryForObject(sql, Long.class,
+	      keyword, keyword, keyword, keyword,
+	      categoryId, categoryId,
+	      active, active
+	    );
+	    return v == null ? 0 : v;
+	  }
+
+	  public List<Map<String, Object>> findProducts(String keyword, Long categoryId, Boolean active, int limit, int offset) {
+	    String sql = """
+	      SELECT
+	        p.product_id, p.category_id,
+	        p.name, p.slug, p.sku,
+	        p.base_price, p.base_stock,
+	        p.main_image, p.is_active,
+	        p.created_at, p.updated_at,
+	        c.name AS category_name
+	      FROM products p
+	      LEFT JOIN categories c ON c.category_id = p.category_id
+	      WHERE (? IS NULL OR ? = '' OR p.name LIKE CONCAT('%%', ?, '%%') OR p.sku LIKE CONCAT('%%', ?, '%%'))
+	        AND (? IS NULL OR p.category_id = ?)
+	        AND (? IS NULL OR p.is_active = ?)
+	      ORDER BY p.created_at DESC, p.product_id DESC
+	      LIMIT ? OFFSET ?
+	    """;
+	    return jdbc.queryForList(sql,
+	      keyword, keyword, keyword, keyword,
+	      categoryId, categoryId,
+	      active, active,
+	      limit, offset
+	    );
+	  }
+
+	  // ======== Uniqueness checks ========
+
+	  public boolean existsSlug(String slug, Long excludeProductId) {
+	    String sql = """
+	      SELECT COUNT(*)
+	      FROM products
+	      WHERE slug = ?
+	        AND (? IS NULL OR product_id <> ?)
+	    """;
+	    Long v = jdbc.queryForObject(sql, Long.class, slug, excludeProductId, excludeProductId);
+	    return v != null && v > 0;
+	  }
+
+	  public boolean existsSku(String sku, Long excludeProductId) {
+	    String sql = """
+	      SELECT COUNT(*)
+	      FROM products
+	      WHERE sku = ?
+	        AND (? IS NULL OR product_id <> ?)
+	    """;
+	    Long v = jdbc.queryForObject(sql, Long.class, sku, excludeProductId, excludeProductId);
+	    return v != null && v > 0;
+	  }
+
+	  public boolean categoryExists(long categoryId) {
+	    Long v = jdbc.queryForObject("SELECT COUNT(*) FROM categories WHERE category_id = ?", Long.class, categoryId);
+	    return v != null && v > 0;
+	  }
+
+	  // ======== Product CRUD ========
+
+	  public long insertProduct(
+	      long categoryId,
+	      String name,
+	      String slug,
+	      String sku,
+	      String shortDesc,
+	      String description,
+	      BigDecimal basePrice,
+	      int baseStock,
+	      String mainImage,
+	      boolean isActive
+	  ) {
+	    KeyHolder kh = new GeneratedKeyHolder();
+	    jdbc.update(conn -> {
+	      PreparedStatement ps = conn.prepareStatement("""
+	        INSERT INTO products
+	          (category_id, name, slug, sku, short_desc, description, base_price, base_stock, main_image, is_active)
+	        VALUES
+	          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	      """, Statement.RETURN_GENERATED_KEYS);
+	      ps.setLong(1, categoryId);
+	      ps.setString(2, name);
+	      ps.setString(3, slug);
+	      ps.setString(4, sku);
+	      ps.setString(5, shortDesc);
+	      ps.setString(6, description);
+	      ps.setBigDecimal(7, basePrice);
+	      ps.setInt(8, baseStock);
+	      ps.setString(9, mainImage);
+	      ps.setInt(10, isActive ? 1 : 0);
+	      return ps;
+	    }, kh);
+
+	    Number key = kh.getKey();
+	    if (key == null) throw new IllegalStateException("INSERT_FAILED");
+	    return key.longValue();
+	  }
+
+	  public int updateProduct(
+	      long productId,
+	      long categoryId,
+	      String name,
+	      String slug,
+	      String sku,
+	      String shortDesc,
+	      String description,
+	      BigDecimal basePrice,
+	      int baseStock,
+	      String mainImage,
+	      boolean isActive
+	  ) {
+	    return jdbc.update("""
+	      UPDATE products
+	      SET category_id = ?,
+	          name = ?,
+	          slug = ?,
+	          sku = ?,
+	          short_desc = ?,
+	          description = ?,
+	          base_price = ?,
+	          base_stock = ?,
+	          main_image = ?,
+	          is_active = ?,
+	          updated_at = CURRENT_TIMESTAMP
+	      WHERE product_id = ?
+	    """, categoryId, name, slug, sku, shortDesc, description, basePrice, baseStock, mainImage, (isActive ? 1 : 0), productId);
+	  }
+
+	  public int updateActive(long productId, boolean isActive) {
+	    return jdbc.update("""
+	      UPDATE products
+	      SET is_active = ?, updated_at = CURRENT_TIMESTAMP
+	      WHERE product_id = ?
+	    """, isActive ? 1 : 0, productId);
+	  }
+
+	  public Optional<Map<String, Object>> findProductById(long productId) {
+	    List<Map<String, Object>> rows = jdbc.queryForList("""
+	      SELECT
+	        p.*,
+	        c.name AS category_name
+	      FROM products p
+	      LEFT JOIN categories c ON c.category_id = p.category_id
+	      WHERE p.product_id = ?
+	    """, productId);
+	    return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+	  }
+
+	  // ======== Images ========
+
+	  public List<Map<String, Object>> findImages(long productId) {
+	    return jdbc.queryForList("""
+	      SELECT image_id, product_id, image_url, is_main, display_order
+	      FROM product_images
+	      WHERE product_id = ?
+	      ORDER BY is_main DESC, display_order ASC, image_id ASC
+	    """, productId);
+	  }
+
+	  public long insertImage(long productId, String url, int isMain, int displayOrder) {
+	    KeyHolder kh = new GeneratedKeyHolder();
+	    jdbc.update(conn -> {
+	      PreparedStatement ps = conn.prepareStatement("""
+	        INSERT INTO product_images (product_id, image_url, is_main, display_order)
+	        VALUES (?, ?, ?, ?)
+	      """, Statement.RETURN_GENERATED_KEYS);
+	      ps.setLong(1, productId);
+	      ps.setString(2, url);
+	      ps.setInt(3, isMain);
+	      ps.setInt(4, displayOrder);
+	      return ps;
+	    }, kh);
+	    Number key = kh.getKey();
+	    if (key == null) throw new IllegalStateException("INSERT_IMAGE_FAILED");
+	    return key.longValue();
+	  }
+
+	  public int clearMainImages(long productId) {
+	    return jdbc.update("UPDATE product_images SET is_main = 0 WHERE product_id = ?", productId);
+	  }
+
+	  public int setMainImage(long productId, long imageId) {
+	    return jdbc.update("""
+	      UPDATE product_images
+	      SET is_main = 1
+	      WHERE product_id = ? AND image_id = ?
+	    """, productId, imageId);
+	  }
+
+	  public int deleteImage(long productId, long imageId) {
+	    return jdbc.update("DELETE FROM product_images WHERE product_id = ? AND image_id = ?", productId, imageId);
+	  }
+
+	  // ======== Variants ========
+
+	  public List<Map<String, Object>> findVariants(long productId) {
+	    return jdbc.queryForList("""
+	      SELECT variant_id, product_id, sku, color, size, material, extra_desc, price, stock, is_active
+	      FROM product_variants
+	      WHERE product_id = ?
+	      ORDER BY variant_id DESC
+	    """, productId);
+	  }
+
+	  public boolean existsVariantSku(String sku, Long excludeVariantId) {
+	    Long v = jdbc.queryForObject("""
+	      SELECT COUNT(*)
+	      FROM product_variants
+	      WHERE sku = ?
+	        AND (? IS NULL OR variant_id <> ?)
+	    """, Long.class, sku, excludeVariantId, excludeVariantId);
+	    return v != null && v > 0;
+	  }
+
+	  public long insertVariant(long productId, String sku, String color, String size, String material, String extraDesc,
+	                            BigDecimal price, int stock, boolean isActive) {
+	    KeyHolder kh = new GeneratedKeyHolder();
+	    jdbc.update(conn -> {
+	      PreparedStatement ps = conn.prepareStatement("""
+	        INSERT INTO product_variants
+	          (product_id, sku, color, size, material, extra_desc, price, stock, is_active)
+	        VALUES
+	          (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	      """, Statement.RETURN_GENERATED_KEYS);
+	      ps.setLong(1, productId);
+	      ps.setString(2, sku);
+	      ps.setString(3, color);
+	      ps.setString(4, size);
+	      ps.setString(5, material);
+	      ps.setString(6, extraDesc);
+	      ps.setBigDecimal(7, price);
+	      ps.setInt(8, stock);
+	      ps.setInt(9, isActive ? 1 : 0);
+	      return ps;
+	    }, kh);
+
+	    Number key = kh.getKey();
+	    if (key == null) throw new IllegalStateException("INSERT_VARIANT_FAILED");
+	    return key.longValue();
+	  }
+
+	  public int updateVariant(long variantId, String sku, String color, String size, String material, String extraDesc,
+	                           BigDecimal price, int stock, boolean isActive) {
+	    return jdbc.update("""
+	      UPDATE product_variants
+	      SET sku = ?, color = ?, size = ?, material = ?, extra_desc = ?, price = ?, stock = ?, is_active = ?
+	      WHERE variant_id = ?
+	    """, sku, color, size, material, extraDesc, price, stock, (isActive ? 1 : 0), variantId);
+	  }
+
+	  public Optional<Map<String, Object>> findVariantById(long variantId) {
+	    List<Map<String, Object>> rows = jdbc.queryForList("""
+	      SELECT *
+	      FROM product_variants
+	      WHERE variant_id = ?
+	    """, variantId);
+	    return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+	  }
+
+	  public int updateVariantActive(long variantId, boolean isActive) {
+	    return jdbc.update("UPDATE product_variants SET is_active = ? WHERE variant_id = ?", isActive ? 1 : 0, variantId);
+	  }
+
+	  // ======== Styles (optional) ========
+
+	  public List<Map<String, Object>> findStylesOfProduct(long productId) {
+	    return jdbc.queryForList("""
+	      SELECT s.style_id, s.style_name
+	      FROM product_styles ps
+	      JOIN styles s ON s.style_id = ps.style_id
+	      WHERE ps.product_id = ?
+	      ORDER BY s.style_name ASC
+	    """, productId);
+	  }
+
+}

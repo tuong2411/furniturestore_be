@@ -51,7 +51,6 @@ public class AuthController {
     }
   }
 
-  // ✅ FE gọi để biết đang login chưa
   @GetMapping("/me")
   public ResponseEntity<?> me(Authentication auth) {
     if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(String.valueOf(auth.getPrincipal()))) {
@@ -72,7 +71,6 @@ public class AuthController {
     ));
   }
 
-  // ✅ logout session
   @PostMapping("/logout")
   public ResponseEntity<?> logout(HttpServletRequest request) {
     SecurityContextHolder.clearContext();

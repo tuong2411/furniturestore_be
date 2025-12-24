@@ -2,6 +2,7 @@ package com.example.demo.repository;
 
 import java.sql.ResultSet;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -38,6 +39,15 @@ public class CategoryRepository {
             return r;
         });
     }
+    public List<Map<String, Object>> listAllForDropdown() {
+        String sql = """
+          SELECT category_id, name
+          FROM categories
+          WHERE is_active = 1
+          ORDER BY display_order ASC, category_id ASC
+        """;
+        return jdbcTemplate.queryForList(sql);
+      }
     public static class CategoryRow {
         public long categoryId;
         public Long parentId;

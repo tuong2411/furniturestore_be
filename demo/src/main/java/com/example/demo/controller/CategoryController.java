@@ -26,4 +26,8 @@ public class CategoryController {
     public ResponseEntity<List<CategoryTreeDto>> tree() {
         return ResponseEntity.ok(categoryService.getTree());
     }
+    @GetMapping
+    public ResponseEntity<?> listAllForDropdown() {
+      return ResponseEntity.ok(categoryService.listAllForDropdown());
+    }
 }

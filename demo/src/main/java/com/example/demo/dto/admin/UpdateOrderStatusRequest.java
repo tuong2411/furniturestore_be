@@ -1,0 +1,5 @@
+package com.example.demo.dto.admin;
+
+public class UpdateOrderStatusRequest {
+	public String status;
+}

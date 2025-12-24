@@ -1,0 +1,99 @@
+package com.example.demo.service;
+
+import com.example.demo.repository.ChatbotRepository;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.*;
+
+@Service
+public class ChatbotService {
+  private final ChatbotRepository repo;
+  private final GeminiClient gemini;
+
+  public ChatbotService(ChatbotRepository repo, GeminiClient gemini) {
+    this.repo = repo;
+    this.gemini = gemini;
+  }
+
+  public String askPublic(String userMessage) {
+    String q = normalize(userMessage);
+
+    List<Map<String,Object>> products = repo.searchProducts(q, 5);
+    List<Map<String,Object>> promos = repo.activePromotions(3);
+    List<Map<String,Object>> cats = repo.categories(10);
+
+    String context = buildContext(products, promos, cats);
+
+    String prompt = """
+	Bạn là chatbot hỗ trợ cửa hàng nội thất. Chỉ dùng dữ liệu trong CONTEXT. 
+	Nếu không đủ dữ liệu trong CONTEXT để trả lời chắc chắn, hãy nói "Mình chưa có thông tin đó trong hệ thống" và gợi ý người dùng xem trang sản phẩm/danh mục.
+	
+	QUY TẮC:
+	- Không bịa.
+	- Không tiết lộ dữ liệu nhạy cảm (user email/phone, mật khẩu, đơn hàng của người khác).
+	- Trả lời ngắn gọn, thân thiện, có gợi ý link dạng: /products/{slug} hoặc /categories/{slug} nếu có.
+	
+	CONTEXT:
+	%s
+	
+	USER QUESTION:
+	%s
+	""".formatted(context, userMessage);
+	
+	    return gemini.generate(prompt);
+  }
+
+  private String normalize(String s) {
+    if (s == null) return "";
+    return s.trim();
+  }
+
+  private String buildContext(List<Map<String,Object>> products,
+                              List<Map<String,Object>> promos,
+                              List<Map<String,Object>> cats) {
+    StringBuilder sb = new StringBuilder();
+
+    sb.append("== CATEGORIES ==\n");
+    for (Map<String,Object> c : cats) {
+      sb.append("- ").append(c.get("name"))
+        .append(" (slug: ").append(c.get("slug")).append(")\n");
+    }
+
+    sb.append("\n== PROMOTIONS (active) ==\n");
+    for (Map<String,Object> p : promos) {
+      sb.append("- code: ").append(p.get("code"))
+        .append(", desc: ").append(p.get("description"))
+        .append(", type: ").append(p.get("discount_type"))
+        .append(", value: ").append(p.get("discount_value"))
+        .append(", min: ").append(p.get("min_order_amount"))
+        .append(", max: ").append(p.get("max_discount"))
+        .append(", end: ").append(p.get("end_date"))
+        .append("\n");
+    }
+
+    sb.append("\n== TOP PRODUCTS (matched) ==\n");
+    for (Map<String,Object> pr : products) {
+      sb.append("- ").append(pr.get("name"))
+        .append(" | price: ").append(vnd(pr.get("base_price")))
+        .append(" | slug: ").append(pr.get("slug"))
+        .append(" | short: ").append(nvl(pr.get("short_desc")))
+        .append("\n");
+    }
+
+    return sb.toString();
+  }
+
+  private String nvl(Object o){ return o == null ? "" : String.valueOf(o); }
+
+  private String vnd(Object price) {
+    try {
+      BigDecimal v = (price instanceof BigDecimal bd) ? bd : new BigDecimal(String.valueOf(price));
+      java.text.NumberFormat nf = java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("vi", "VN"));
+      nf.setMaximumFractionDigits(0);
+      return nf.format(v);
+    } catch (Exception e) {
+      return String.valueOf(price);
+    }
+  }
+}

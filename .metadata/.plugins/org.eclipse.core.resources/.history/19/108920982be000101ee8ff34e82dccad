@@ -1,0 +1,88 @@
+package com.example.demo.repository;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public class AdminDashboardRepository {
+	private final JdbcTemplate jdbc;
+
+	  public AdminDashboardRepository(JdbcTemplate jdbc) {
+	    this.jdbc = jdbc;
+	  }
+
+	  public long countUsers() {
+	    String sql = "SELECT COUNT(*) FROM users";
+	    Long v = jdbc.queryForObject(sql, Long.class);
+	    return v == null ? 0 : v;
+	  }
+
+	  public long countActiveProducts() {
+	    String sql = "SELECT COUNT(*) FROM products WHERE is_active = 1";
+	    Long v = jdbc.queryForObject(sql, Long.class);
+	    return v == null ? 0 : v;
+	  }
+
+	  public long countOrders() {
+	    String sql = "SELECT COUNT(*) FROM orders";
+	    Long v = jdbc.queryForObject(sql, Long.class);
+	    return v == null ? 0 : v;
+	  }
+
+	  /**
+	   * Doanh thu: bạn có thể chỉnh điều kiện status/payment_status theo hệ thống.
+	   * Mặc định: lấy các đơn COMPLETED (hoặc PAID).
+	   */
+	  public BigDecimal sumRevenueCompleted() {
+	    String sql = """
+	        SELECT COALESCE(SUM(total_amount), 0)
+	        FROM orders
+	        WHERE status IN ('COMPLETED')
+	    """;
+	    BigDecimal v = jdbc.queryForObject(sql, BigDecimal.class);
+	    return v == null ? BigDecimal.ZERO : v;
+	  }
+
+	  public List<Map<String, Object>> countOrdersByStatus() {
+	    String sql = """
+	        SELECT status, COUNT(*) AS total
+	        FROM orders
+	        GROUP BY status
+	        ORDER BY total DESC
+	    """;
+	    return jdbc.queryForList(sql);
+	  }
+
+	  /**
+	   * Doanh thu 7 ngày gần nhất (theo created_at).
+	   * Trả về list {day: '2025-12-24', revenue: ...}
+	   */
+	  public List<Map<String, Object>> revenueLast7Days() {
+	    String sql = """
+	        SELECT
+	          DATE(created_at) AS day,
+	          COALESCE(SUM(total_amount), 0) AS revenue
+	        FROM orders
+	        WHERE created_at >= (CURRENT_DATE - INTERVAL 6 DAY)
+	          AND status IN ('COMPLETED')
+	        GROUP BY DATE(created_at)
+	        ORDER BY day ASC
+	    """;
+	    return jdbc.queryForList(sql);
+	  }
+
+	  public long countOrdersToday() {
+	    String sql = """
+	        SELECT COUNT(*)
+	        FROM orders
+	        WHERE DATE(created_at) = CURRENT_DATE
+	    """;
+	    Long v = jdbc.queryForObject(sql, Long.class);
+	    return v == null ? 0 : v;
+	  }
+
+}

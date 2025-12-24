@@ -1,0 +1,95 @@
+package com.example.demo.service;
+
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Set;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.demo.dto.ConsultingRequestDto;
+import com.example.demo.dto.CreateConsultingRequest;
+import com.example.demo.dto.UpdateConsultingStatusRequest;
+import com.example.demo.repository.ConsultingRepository;
+import com.example.demo.repository.UserRepository;
+
+@Service
+public class ConsultingService {
+
+    private final ConsultingRepository repo;
+    private final UserRepository userRepository;
+    private final EmailService emailService;
+
+    private static final Set<String> ALLOWED_STATUS =
+        Set.of("NEW", "CONTACTED", "DONE", "CANCELED");
+
+    
+
+    public ConsultingService(ConsultingRepository repo, UserRepository userRepository, EmailService emailService) {
+		super();
+		this.repo = repo;
+		this.userRepository = userRepository;
+		this.emailService = emailService;
+	}
+
+	@Transactional
+    public ConsultingRequestDto create(Integer userIdOrNull, CreateConsultingRequest req) {
+        if (req == null) throw new IllegalArgumentException("MISSING_BODY");
+
+        String fullName = must(req.fullName, "fullName");
+        String phone = must(req.phone, "phone");
+        String service = must(req.service, "service");
+
+        String email = norm(req.email);
+        String message = norm(req.message);
+
+        long id = repo.insert(userIdOrNull, fullName, phone, email, service, message);
+        List<String> admins = userRepository.findAdminEmails();
+        if (!admins.isEmpty()) {
+            emailService.sendNewConsultingRequestToAdmins(
+                admins,
+                fullName,
+                phone,
+                email,
+                service,
+                message
+            );
+        }
+
+        return repo.findById(id).orElseThrow(() -> new IllegalStateException("CREATE_FAILED"));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConsultingRequestDto> list(String status, Integer limit, Integer offset) {
+        int lim = (limit == null) ? 50 : limit;
+        int off = (offset == null) ? 0 : offset;
+        return repo.list(status, lim, off);
+    }
+
+    @Transactional
+    public ConsultingRequestDto updateStatus(long requestId, UpdateConsultingStatusRequest req) {
+        if (req == null) throw new IllegalArgumentException("MISSING_BODY");
+
+        String status = must(req.status, "status").toUpperCase();
+        if (!ALLOWED_STATUS.contains(status)) throw new IllegalArgumentException("INVALID_STATUS");
+
+        String note = norm(req.note);
+
+        int ok = repo.updateStatus(requestId, status, note);
+        if (ok != 1) throw new NoSuchElementException("REQUEST_NOT_FOUND");
+
+        return repo.findById(requestId).orElseThrow(() -> new NoSuchElementException("REQUEST_NOT_FOUND"));
+    }
+
+    private String must(String s, String field) {
+        if (s == null || s.trim().isEmpty())
+            throw new IllegalArgumentException("MISSING_" + field.toUpperCase());
+        return s.trim();
+    }
+
+    private String norm(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+}

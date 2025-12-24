@@ -1,0 +1,44 @@
+package com.example.demo.controller;
+
+import com.example.demo.dto.ChatbotRequest;
+import com.example.demo.dto.ChatbotResponse;
+import com.example.demo.service.GeminiChatService;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+public class ChatbotController {
+
+    private final GeminiChatService service;
+
+    public ChatbotController(GeminiChatService service) {
+        this.service = service;
+    }
+
+    @PostMapping("/api/chatbot")
+    public ChatbotResponse chat(@RequestBody ChatbotRequest req) {
+        String reply = service.chat(req);
+        return new ChatbotResponse(reply);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> bad(IllegalArgumentException ex) {
+        return Map.of("message", ex.getMessage());
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Map<String, String> config(IllegalStateException ex) {
+        return Map.of("message", ex.getMessage());
+    }
+
+    @ExceptionHandler(RuntimeException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public Map<String, String> upstream(RuntimeException ex) {
+        return Map.of("message", ex.getMessage());
+    }
+}

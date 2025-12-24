@@ -1,0 +1,206 @@
+package com.example.demo.service;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.demo.repository.OrderRepository;
+
+import jakarta.mail.internet.MimeMessage;
+import org.springframework.mail.javamail.MimeMessageHelper;
+
+@Service
+public class EmailService {
+
+	private final JavaMailSender mailSender;
+	private final OrderRepository orderRepo;
+
+    @Value("${spring.mail.username}")
+    private String from;
+
+    
+    public EmailService(JavaMailSender mailSender, OrderRepository orderRepository) {
+		super();
+		this.mailSender = mailSender;
+		this.orderRepo = orderRepository;
+	}
+
+	public void sendOrderSuccessEmail(
+            String to,
+            long orderId,
+            String customerName,
+            String phone,
+            String addressText,
+            String paymentMethod,
+            String note,
+            String totalFormatted,
+            List<Map<String, Object>> items 
+    ) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+
+            helper.setFrom(from );
+            helper.setTo(to);
+            helper.setSubject("✅ Đặt hàng thành công - Mã đơn #" + orderId);
+
+            String html = buildOrderSuccessHtml(orderId, customerName, phone, addressText,
+                    paymentMethod, note, totalFormatted, items);
+
+            helper.setText(html, true);
+            mailSender.send(message);
+        } catch (Exception e) { 
+            System.err.println("[MAIL] Failed to send order email: " + e.getMessage());
+        }
+    }
+
+    private String buildOrderSuccessHtml(long orderId, String customerName, String phone,
+                                         String addressText, String paymentMethod, String note,
+                                         String totalFormatted, List<Map<String, Object>> items) {
+
+        StringBuilder rows = new StringBuilder();
+        for (Map<String, Object> it : items) {
+            rows.append("<tr>")
+                .append("<td style='padding:8px;border-bottom:1px solid #eee;'>")
+                .append(escape((String) it.get("name")));
+            String v = (String) it.get("variantInfo");
+            if (v != null && !v.isBlank()) {
+                rows.append("<div style='color:#666;font-size:12px;'>")
+                    .append(escape(v))
+                    .append("</div>");
+            }
+            rows.append("</td>")
+                .append("<td style='padding:8px;border-bottom:1px solid #eee;text-align:center;'>")
+                .append(it.get("qty"))
+                .append("</td>")
+                .append("<td style='padding:8px;border-bottom:1px solid #eee;text-align:right;'>")
+                .append(it.get("priceFormatted"))
+                .append("</td>")
+                .append("<td style='padding:8px;border-bottom:1px solid #eee;text-align:right;'>")
+                .append(it.get("lineTotalFormatted"))
+                .append("</td>")
+                .append("</tr>");
+        }
+
+        return """
+        <div style="font-family:Arial,sans-serif;max-width:680px;margin:auto;">
+          <h2 style="margin:0 0 8px 0;">🎉 Đặt hàng thành công</h2>
+          <p style="margin:0 0 16px 0;">Cảm ơn bạn đã mua hàng. Mã đơn: <b>#%d</b></p>
+
+          <div style="background:#f7f7f7;border-radius:10px;padding:12px 14px;margin:12px 0;">
+            <div><b>Khách hàng:</b> %s</div>
+            <div><b>SĐT:</b> %s</div>
+            <div><b>Địa chỉ:</b> %s</div>
+            <div><b>Thanh toán:</b> %s</div>
+            %s
+          </div>
+
+          <table style="width:100%%;border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Sản phẩm</th>
+                <th style="text-align:center;padding:8px;border-bottom:2px solid #ddd;">SL</th>
+                <th style="text-align:right;padding:8px;border-bottom:2px solid #ddd;">Đơn giá</th>
+                <th style="text-align:right;padding:8px;border-bottom:2px solid #ddd;">Thành tiền</th>
+              </tr>
+            </thead>
+            <tbody>
+              %s
+            </tbody>
+          </table>
+
+          <div style="text-align:right;margin-top:14px;font-size:16px;">
+            <b>Tổng cộng:</b> <span style="font-size:18px;">%s</span>
+          </div>
+
+          <p style="color:#777;font-size:12px;margin-top:18px;">
+            Nếu bạn không thực hiện đơn hàng này, vui lòng bỏ qua email.
+          </p>
+        </div>
+        """.formatted(
+            orderId,
+            escape(customerName),
+            escape(phone),
+            escape(addressText),
+            escape(paymentMethod),
+            (note != null && !note.isBlank()) ? "<div><b>Ghi chú:</b> " + escape(note) + "</div>" : "",
+            rows.toString(),
+            totalFormatted
+        );
+    }
+
+    private String escape(String s) {
+        if (s == null) return "";
+        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+                .replace("\"","&quot;").replace("'","&#39;");
+    }
+    
+    @Transactional(readOnly = true)
+    public void sendPaidEmail(long orderId, String emailTo) {
+
+        if (emailTo == null || emailTo.isBlank()) {
+            System.err.println("[MAIL] Missing emailTo (login user) for orderId=" + orderId);
+            return;
+        }
+
+        Map<String, Object> h = orderRepo.findOrderEmailHeader(orderId)
+            .orElseThrow(() -> new IllegalArgumentException("ORDER_NOT_FOUND"));
+
+        String fullName = (String) h.get("full_name");
+        String phone = (String) h.get("phone");
+
+        String addressText =
+            h.get("province") + ", " +
+            h.get("district") + ", " +
+            h.get("ward") + " - " +
+            h.get("street");
+
+        String paymentMethod = String.valueOf(h.get("payment_method"));
+        String note = (String) h.get("note");
+        BigDecimal total = (BigDecimal) h.get("total_amount");
+
+        List<Map<String, Object>> rows = orderRepo.findOrderEmailItems(orderId);
+        List<Map<String, Object>> emailItems = new ArrayList<>();
+
+        for (Map<String, Object> r : rows) {
+            BigDecimal unit = (BigDecimal) r.get("unit_price");
+            int qty = ((Number) r.get("quantity")).intValue();
+
+            Map<String, Object> m = new HashMap<>();
+            m.put("name", r.get("product_name"));
+            m.put("variantInfo", r.get("variant_info"));
+            m.put("qty", qty);
+            m.put("priceFormatted", formatVnd(unit));
+            m.put("lineTotalFormatted", formatVnd(unit.multiply(BigDecimal.valueOf(qty))));
+            emailItems.add(m);
+        }
+
+        sendOrderSuccessEmail(
+            emailTo,
+            orderId,
+            fullName,
+            phone,
+            addressText,
+            paymentMethod,
+            note,
+            formatVnd(total),
+            emailItems
+        );
+    }
+
+    private String formatVnd(java.math.BigDecimal v) {
+        java.text.NumberFormat nf =
+            java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("vi", "VN"));
+        nf.setMaximumFractionDigits(0);
+        return nf.format(v == null ? java.math.BigDecimal.ZERO : v);
+    }
+
+
+}

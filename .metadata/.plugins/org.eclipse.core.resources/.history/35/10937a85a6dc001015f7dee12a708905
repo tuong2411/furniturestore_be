@@ -1,0 +1,45 @@
+package com.example.demo.repository;
+
+import java.util.*;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public class ChatbotRepository {
+  private final JdbcTemplate jdbc;
+  public ChatbotRepository(JdbcTemplate jdbc){ this.jdbc = jdbc; }
+
+  public List<Map<String,Object>> searchProducts(String q, int limit) {
+    String sql = """
+      SELECT product_id, name, slug, base_price, main_image, short_desc
+      FROM products
+      WHERE is_active = 1
+        AND MATCH(name, short_desc, description) AGAINST (? IN NATURAL LANGUAGE MODE)
+      ORDER BY MATCH(name, short_desc, description) AGAINST (? IN NATURAL LANGUAGE MODE) DESC
+      LIMIT ?
+    """;
+    return jdbc.queryForList(sql, q, q, limit);
+  }
+
+  public List<Map<String,Object>> activePromotions(int limit) {
+    String sql = """
+      SELECT code, description, discount_type, discount_value, max_discount, min_order_amount, start_date, end_date
+      FROM promotions
+      WHERE is_active = 1 AND NOW() BETWEEN start_date AND end_date
+      ORDER BY end_date ASC
+      LIMIT ?
+    """;
+    return jdbc.queryForList(sql, limit);
+  }
+
+  public List<Map<String,Object>> categories(int limit) {
+    String sql = """
+      SELECT category_id, name, slug, description
+      FROM categories
+      WHERE is_active = 1
+      ORDER BY display_order ASC
+      LIMIT ?
+    """;
+    return jdbc.queryForList(sql, limit);
+  }
+}

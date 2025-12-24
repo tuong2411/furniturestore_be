@@ -41,5 +41,8 @@ public class CategoryService {
 
         return roots;
     }
+    public List<Map<String, Object>> listAllForDropdown() {
+        return categoryRepository.listAllForDropdown();
+      }
 
 }

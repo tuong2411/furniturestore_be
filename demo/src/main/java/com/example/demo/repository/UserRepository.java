@@ -1,5 +1,7 @@
 package com.example.demo.repository;
 
+import java.util.List;
+
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -41,6 +43,15 @@ public class UserRepository {
             VALUES (2, ?, ?, NULL, ?, NULL, 'ACTIVE')
             """;
         return jdbc.update(sql, fullName, email, passwordHash);
+    }
+    public List<String> findAdminEmails() {
+        return jdbc.queryForList("""
+            SELECT u.email
+            FROM users u
+            JOIN roles r ON u.role_id = r.role_id
+            WHERE r.role_name = 'ADMIN'
+              AND u.status = 'ACTIVE'
+        """, String.class);
     }
 
 }

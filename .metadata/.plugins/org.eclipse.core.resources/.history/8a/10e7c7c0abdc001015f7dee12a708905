@@ -1,0 +1,186 @@
+package com.example.demo.service;
+
+import com.example.demo.repository.ChatbotRepository;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.text.Normalizer;
+import java.util.*;
+import java.util.regex.Pattern;
+
+@Service
+public class ChatbotService {
+
+  private final ChatbotRepository repo;
+  private final GeminiClient gemini;
+
+  public ChatbotService(ChatbotRepository repo, GeminiClient gemini) {
+    this.repo = repo;
+    this.gemini = gemini;
+  }
+
+  public String askPublic(String userMessage) {
+    String q = normalize(userMessage);
+    if (q.isBlank()) return "Bạn muốn hỏi về sản phẩm nào ạ? (vd: sofa, tủ quần áo, bàn ăn…)";
+
+    // ===== 1) Decide what to retrieve (avoid dumping) =====
+    boolean askPromo = looksLikePromoQuestion(q);
+    boolean askCategoryList = looksLikeBrowseQuestion(q);
+
+    // keyword dùng để search (đơn giản nhưng hiệu quả)
+    String kw = extractKeyword(q);
+
+    // Categories:
+    // - nếu user hỏi dạng “có bán X không” -> chỉ lấy categories match
+    // - nếu user hỏi “shop có gì” -> lấy ít categories nổi bật
+    List<Map<String, Object>> cats;
+    if (askCategoryList) {
+      cats = repo.categories(6); // ít thôi
+    } else {
+      // CẦN repo có hàm searchCategories. Nếu chưa có, tạo (mình ghi dưới).
+      cats = repo.searchCategories(kw, 3);
+      if (cats.isEmpty()) {
+        cats = repo.categories(4);
+      }
+    }
+
+    // Products: chỉ lấy ít (3-5)
+    List<Map<String, Object>> products = repo.searchProducts(kw, 4);
+
+    // Promotions: chỉ load khi user hỏi khuyến mãi
+    List<Map<String, Object>> promos = askPromo ? repo.activePromotions(2) : List.of();
+
+    // ===== 2) Build a SHORT context =====
+    String context = buildContextShort(products, cats, promos);
+
+    // ===== 3) Prompt: force concise answer format =====
+    String prompt = """
+Bạn là chatbot hỗ trợ cửa hàng nội thất.
+CHỈ dùng dữ liệu trong CONTEXT để trả lời. KHÔNG liệt kê lan man.
+
+FORMAT BẮT BUỘC:
+- Trả lời 2–6 dòng, ngắn gọn, đúng trọng tâm.
+- Nếu user hỏi "có bán X không": trả lời Có/Không + đưa 1 link danh mục phù hợp (nếu có) + gợi ý tối đa 3 sản phẩm.
+- Nếu thiếu dữ liệu: hỏi lại 1 câu để уточ định (ví dụ: khoảng giá, kích thước, màu).
+- Link chỉ dùng dạng: /categories/{slug} hoặc /products/{slug} (không thêm domain).
+- Không được tiết lộ dữ liệu nhạy cảm (email/phone user, mật khẩu, OTP, đơn hàng người khác).
+- Không bịa.
+
+CONTEXT:
+%s
+
+USER QUESTION:
+%s
+""".formatted(context, q);
+
+    return gemini.generate(prompt);
+  }
+
+  // =========================
+  // Context builder (short)
+  // =========================
+  private String buildContextShort(List<Map<String, Object>> products,
+                                   List<Map<String, Object>> cats,
+                                   List<Map<String, Object>> promos) {
+
+    StringBuilder sb = new StringBuilder(512);
+
+    sb.append("CATEGORIES:\n");
+    if (cats == null || cats.isEmpty()) {
+      sb.append("- (none)\n");
+    } else {
+      for (Map<String, Object> c : cats) {
+        sb.append("- ").append(nvl(c.get("name")))
+          .append(" (/categories/").append(nvl(c.get("slug"))).append(")")
+          .append("\n");
+      }
+    }
+
+    sb.append("\nPRODUCTS:\n");
+    if (products == null || products.isEmpty()) {
+      sb.append("- (none)\n");
+    } else {
+      for (Map<String, Object> p : products) {
+        sb.append("- ").append(nvl(p.get("name")))
+          .append(" | ").append(vnd(p.get("base_price")))
+          .append(" (/products/").append(nvl(p.get("slug"))).append(")");
+        String shortDesc = nvl(p.get("short_desc"));
+        if (!shortDesc.isBlank()) sb.append(" | ").append(shortDesc);
+        sb.append("\n");
+      }
+    }
+
+    if (promos != null && !promos.isEmpty()) {
+      sb.append("\nPROMOTIONS:\n");
+      for (Map<String, Object> pr : promos) {
+        sb.append("- ").append(nvl(pr.get("description")))
+          .append(" | code: ").append(nvl(pr.get("code")))
+          .append(" | type: ").append(nvl(pr.get("discount_type")))
+          .append(" | value: ").append(nvl(pr.get("discount_value")))
+          .append("\n");
+      }
+    }
+
+    return sb.toString();
+  }
+
+  // =========================
+  // Heuristics
+  // =========================
+  private boolean looksLikePromoQuestion(String q) {
+    String s = toAsciiLower(q);
+    return s.contains("khuyen mai") || s.contains("giam gia") || s.contains("coupon")
+        || s.contains("ma giam") || s.contains("voucher");
+  }
+
+  private boolean looksLikeBrowseQuestion(String q) {
+    String s = toAsciiLower(q);
+    return s.contains("co gi") || s.contains("ban gi") || s.contains("danh muc")
+        || s.contains("san pham nao") || s.contains("goi y") || s.contains("tu van");
+  }
+
+  private String extractKeyword(String q) {
+    // đơn giản: lấy cả câu, Gemini+FULLTEXT tự match tốt; nhưng để tránh dài,
+    // mình cắt còn ~80 ký tự
+    String s = q.trim();
+    if (s.length() > 80) s = s.substring(0, 80);
+
+    // bỏ mấy từ vô nghĩa phổ biến
+    s = toAsciiLower(s)
+      .replace("bên bạn", "")
+      .replace("shop", "")
+      .replace("có bán", "")
+      .replace("không", "")
+      .replace("nhỉ", "")
+      .trim();
+
+    return s.isBlank() ? q.trim() : s;
+  }
+
+  private String normalize(String s) {
+    if (s == null) return "";
+    return s.trim();
+  }
+
+  private String toAsciiLower(String input) {
+    String norm = Normalizer.normalize(input, Normalizer.Form.NFD);
+    String noDiacritics = Pattern.compile("\\p{InCombiningDiacriticalMarks}+")
+        .matcher(norm).replaceAll("");
+    return noDiacritics.toLowerCase(Locale.ROOT);
+  }
+
+  private String nvl(Object o) { return o == null ? "" : String.valueOf(o); }
+
+  private String vnd(Object price) {
+    try {
+      BigDecimal v = (price instanceof BigDecimal bd)
+          ? bd
+          : new BigDecimal(String.valueOf(price));
+      var nf = java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("vi", "VN"));
+      nf.setMaximumFractionDigits(0);
+      return nf.format(v);
+    } catch (Exception e) {
+      return String.valueOf(price);
+    }
+  }
+}

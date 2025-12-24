@@ -1,11 +1,17 @@
 package com.example.demo.service;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.demo.repository.OrderRepository;
 
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -14,14 +20,19 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 public class EmailService {
 
 	private final JavaMailSender mailSender;
+	private final OrderRepository orderRepo;
 
     @Value("${spring.mail.username}")
     private String from;
 
-    public EmailService(JavaMailSender mailSender) {
-        this.mailSender = mailSender;
-    }
-    public void sendOrderSuccessEmail(
+    
+    public EmailService(JavaMailSender mailSender, OrderRepository orderRepository) {
+		super();
+		this.mailSender = mailSender;
+		this.orderRepo = orderRepository;
+	}
+
+	public void sendOrderSuccessEmail(
             String to,
             long orderId,
             String customerName,
@@ -130,4 +141,140 @@ public class EmailService {
         return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
                 .replace("\"","&quot;").replace("'","&#39;");
     }
+    
+    @Transactional(readOnly = true)
+    public void sendPaidEmail(long orderId, String emailTo) {
+
+        if (emailTo == null || emailTo.isBlank()) {
+            System.err.println("[MAIL] Missing emailTo (login user) for orderId=" + orderId);
+            return;
+        }
+
+        Map<String, Object> h = orderRepo.findOrderEmailHeader(orderId)
+            .orElseThrow(() -> new IllegalArgumentException("ORDER_NOT_FOUND"));
+
+        String fullName = (String) h.get("full_name");
+        String phone = (String) h.get("phone");
+
+        String addressText =
+            h.get("province") + ", " +
+            h.get("district") + ", " +
+            h.get("ward") + " - " +
+            h.get("street");
+
+        String paymentMethod = String.valueOf(h.get("payment_method"));
+        String note = (String) h.get("note");
+        BigDecimal total = (BigDecimal) h.get("total_amount");
+
+        List<Map<String, Object>> rows = orderRepo.findOrderEmailItems(orderId);
+        List<Map<String, Object>> emailItems = new ArrayList<>();
+
+        for (Map<String, Object> r : rows) {
+            BigDecimal unit = (BigDecimal) r.get("unit_price");
+            int qty = ((Number) r.get("quantity")).intValue();
+
+            Map<String, Object> m = new HashMap<>();
+            m.put("name", r.get("product_name"));
+            m.put("variantInfo", r.get("variant_info"));
+            m.put("qty", qty);
+            m.put("priceFormatted", formatVnd(unit));
+            m.put("lineTotalFormatted", formatVnd(unit.multiply(BigDecimal.valueOf(qty))));
+            emailItems.add(m);
+        }
+
+        sendOrderSuccessEmail(
+            emailTo,
+            orderId,
+            fullName,
+            phone,
+            addressText,
+            paymentMethod,
+            note,
+            formatVnd(total),
+            emailItems
+        );
+    }
+
+    private String formatVnd(java.math.BigDecimal v) {
+        java.text.NumberFormat nf =
+            java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("vi", "VN"));
+        nf.setMaximumFractionDigits(0);
+        return nf.format(v == null ? java.math.BigDecimal.ZERO : v);
+    }
+    public void sendResetOtpEmail(String to, String fullName, String otp, int minutes) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+
+            helper.setFrom(from);
+            helper.setTo(to);
+            helper.setSubject("🔐 Mã OTP đặt lại mật khẩu");
+
+            String html = """
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;">
+                  <h2>Đặt lại mật khẩu</h2>
+                  <p>Xin chào <b>%s</b>,</p>
+                  <p>Mã OTP của bạn là:</p>
+                  <div style="font-size:28px;font-weight:800;letter-spacing:4px;margin:12px 0;">%s</div>
+                  <p>Mã có hiệu lực trong <b>%d phút</b>.</p>
+                  <p style="color:#777;font-size:12px;margin-top:18px;">
+                    Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.
+                  </p>
+                </div>
+            """.formatted(escape(fullName), escape(otp), minutes);
+
+            helper.setText(html, true);
+            mailSender.send(message);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void sendNewConsultingRequestToAdmins(
+    	    List<String> adminEmails,
+    	    String fullName,
+    	    String phone,
+    	    String email,
+    	    String service,
+    	    String message
+    	) {
+    	    try {
+    	        MimeMessage msg = mailSender.createMimeMessage();
+    	        MimeMessageHelper helper = new MimeMessageHelper(msg, "UTF-8");
+
+    	        helper.setFrom(from);
+    	        helper.setTo(adminEmails.toArray(new String[0]));
+    	        helper.setSubject("📩 Yêu cầu tư vấn mới từ khách hàng");
+
+    	        String html = """
+    	            <div style="font-family:Arial,sans-serif;">
+    	              <h2>Yêu cầu tư vấn mới</h2>
+    	              <p><b>Khách hàng:</b> %s</p>
+    	              <p><b>SĐT:</b> %s</p>
+    	              <p><b>Email:</b> %s</p>
+    	              <p><b>Dịch vụ quan tâm:</b> %s</p>
+    	              <p><b>Lời nhắn:</b><br/>%s</p>
+    	            </div>
+    	        """.formatted(
+    	            esc(fullName),
+    	            esc(phone),
+    	            esc(email),
+    	            esc(service),
+    	            esc(message)
+    	        );
+
+    	        helper.setText(html, true);
+    	        mailSender.send(msg);
+    	    } catch (Exception e) {
+    	        e.printStackTrace();
+    	    }
+    	}
+
+    	private String esc(String s) {
+    	    if (s == null) return "";
+    	    return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");
+    	}
+
+
+
 }
